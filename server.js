@@ -34,6 +34,9 @@ const FREE_MODELS = {
   qwen: 'qwen/qwen-2-7b-instruct:free'
 };
 
+// Model fallback priority order (try models in this order if primary fails)
+const MODEL_FALLBACK_ORDER = ['llama', 'qwen', 'gemma', 'mistral'];
+
 // AI Agent personalities
 const AGENT_PERSONALITIES = {
   pro: {
@@ -128,13 +131,15 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
         // Check if it's a 404 model not found error
         const is404 = response.status === 404;
         
-        if (is404 && !triedModels.includes(model)) {
-          // Try fallback to alternative models
+        // Only try fallback if model is valid and it's a 404 error
+        if (is404 && FREE_MODELS[model] && !triedModels.includes(model)) {
+          // Try fallback to alternative models in priority order
           triedModels.push(model);
-          const availableModels = Object.keys(FREE_MODELS).filter(m => !triedModels.includes(m));
           
-          if (availableModels.length > 0) {
-            const fallbackModel = availableModels[0];
+          // Find next available model from fallback order
+          const fallbackModel = MODEL_FALLBACK_ORDER.find(m => !triedModels.includes(m));
+          
+          if (fallbackModel) {
             console.log(`Model ${modelId} not found (404). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
             return await callOpenRouter(prompt, personality, length, fallbackModel, triedModels);
           }
