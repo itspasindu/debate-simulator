@@ -59,18 +59,18 @@ const RESPONSE_LENGTHS = {
  */
 async function fetchWithTimeout(url, options, timeout = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeout);
 
   try {
     const response = await fetch(url, {
       ...options,
       signal: controller.signal
     });
-    clearTimeout(timeoutId);
     return response;
-  } catch (error) {
+  } finally {
     clearTimeout(timeoutId);
-    throw error;
   }
 }
 
@@ -84,62 +84,67 @@ function delay(ms) {
 /**
  * Call OpenRouter API to get AI response with retry logic
  */
-async function callOpenRouter(prompt, personality, length, model = 'llama', retryCount = 0) {
+async function callOpenRouter(prompt, personality, length, model = 'llama') {
   const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
 
-  try {
-    const response = await fetchWithTimeout(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/itspasindu/debate-simulator',
-        'X-Title': 'AI Debate Simulator'
-      },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [
-          {
-            role: 'system',
-            content: personality.style
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.7
-      })
-    });
+  // Use iterative approach for retries instead of recursion
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/itspasindu/debate-simulator',
+          'X-Title': 'AI Debate Simulator'
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [
+            {
+              role: 'system',
+              content: personality.style
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.7
+        })
+      });
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
-    }
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
+      }
 
-    const data = await response.json();
-    return data.choices[0].message.content;
-  } catch (error) {
-    console.error(`Error calling OpenRouter (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error.message);
-    
-    // Check if we should retry
-    const isNetworkError = error.name === 'AbortError' || 
-                          error.name === 'TypeError' || 
-                          error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-                          error.code === 'ECONNREFUSED' ||
-                          error.code === 'ETIMEDOUT';
-    
-    if (isNetworkError && retryCount < MAX_RETRIES) {
-      // Calculate exponential backoff delay
-      const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, retryCount);
-      console.log(`Retrying in ${delayMs}ms...`);
-      await delay(delayMs);
-      return callOpenRouter(prompt, personality, length, model, retryCount + 1);
+      const data = await response.json();
+      return data.choices[0].message.content;
+    } catch (error) {
+      const isLastAttempt = attempt === MAX_RETRIES;
+      console.error(`Error calling OpenRouter (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, error.message);
+      
+      // Check if we should retry
+      const isNetworkError = error.name === 'AbortError' || 
+                            error.name === 'TypeError' || 
+                            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+                            error.code === 'ECONNREFUSED' ||
+                            error.code === 'ETIMEDOUT';
+      
+      if (isNetworkError && !isLastAttempt) {
+        // Calculate exponential backoff delay
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        console.log(`Retrying in ${delayMs}ms...`);
+        await delay(delayMs);
+        continue; // Try again
+      }
+      
+      // Either not a network error or last attempt failed
+      throw error;
     }
-    
-    throw error;
   }
 }
 
