@@ -17,6 +17,9 @@ app.use(express.static('public'));
 // OpenRouter API configuration
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const FETCH_TIMEOUT_MS = 60000; // 60 seconds timeout
+const MAX_RETRIES = 3; // Maximum number of retry attempts
+const INITIAL_RETRY_DELAY_MS = 1000; // Initial delay before first retry
 
 // Simple rate limiting for debate endpoint
 const debateRateLimiter = new Map();
@@ -52,48 +55,109 @@ const RESPONSE_LENGTHS = {
 };
 
 /**
- * Call OpenRouter API to get AI response
+ * Helper function to add timeout to fetch requests
+ */
+async function fetchWithTimeout(url, options, timeout = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Helper function to delay execution
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Call OpenRouter API to get AI response with retry logic
  */
 async function callOpenRouter(prompt, personality, length, model = 'llama') {
   const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
 
-  try {
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/itspasindu/debate-simulator',
-        'X-Title': 'AI Debate Simulator'
-      },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [
-          {
-            role: 'system',
-            content: personality.style
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.7
-      })
-    });
+  // Use iterative approach for retries instead of recursion
+  let attempt = 0;
+  while (attempt <= MAX_RETRIES) {
+    try {
+      if (attempt > 0) {
+        console.log(`Retry attempt ${attempt}/${MAX_RETRIES}...`);
+      }
+      
+      const response = await fetchWithTimeout(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/itspasindu/debate-simulator',
+          'X-Title': 'AI Debate Simulator'
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [
+            {
+              role: 'system',
+              content: personality.style
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.7
+        })
+      });
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
+      }
+
+      const data = await response.json();
+      
+      // Validate response structure
+      if (!data?.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response from OpenRouter API: missing content');
+      }
+      
+      return data.choices[0].message.content;
+    } catch (error) {
+      const isLastAttempt = attempt === MAX_RETRIES;
+      const attemptLabel = attempt === 0 ? 'Initial attempt' : `Retry ${attempt}/${MAX_RETRIES}`;
+      console.error(`${attemptLabel} failed:`, error.message);
+      
+      // Check if we should retry
+      const isNetworkError = error.name === 'AbortError' || 
+                            error.name === 'TypeError' || 
+                            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+                            error.code === 'ECONNREFUSED' ||
+                            error.code === 'ETIMEDOUT';
+      
+      if (isNetworkError && !isLastAttempt) {
+        // Calculate exponential backoff delay
+        const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        console.log(`Waiting ${delayMs}ms before retry...`);
+        await delay(delayMs);
+        attempt++;
+        continue; // Try again
+      }
+      
+      // Either not a network error or last attempt failed
+      throw error;
     }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
-  } catch (error) {
-    console.error('Error calling OpenRouter:', error);
-    throw error;
   }
 }
 
