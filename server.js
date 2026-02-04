@@ -89,8 +89,13 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
 
   // Use iterative approach for retries instead of recursion
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  let attempt = 0;
+  while (attempt <= MAX_RETRIES) {
     try {
+      if (attempt > 0) {
+        console.log(`Retry attempt ${attempt}/${MAX_RETRIES}...`);
+      }
+      
       const response = await fetchWithTimeout(OPENROUTER_API_URL, {
         method: 'POST',
         headers: {
@@ -131,7 +136,8 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
       return data.choices[0].message.content;
     } catch (error) {
       const isLastAttempt = attempt === MAX_RETRIES;
-      console.error(`Error calling OpenRouter (attempt ${attempt + 1}/${MAX_RETRIES + 1}):`, error.message);
+      const attemptLabel = attempt === 0 ? 'Initial attempt' : `Retry ${attempt}/${MAX_RETRIES}`;
+      console.error(`${attemptLabel} failed:`, error.message);
       
       // Check if we should retry
       const isNetworkError = error.name === 'AbortError' || 
@@ -143,8 +149,9 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
       if (isNetworkError && !isLastAttempt) {
         // Calculate exponential backoff delay
         const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
-        console.log(`Retrying in ${delayMs}ms...`);
+        console.log(`Waiting ${delayMs}ms before retry...`);
         await delay(delayMs);
+        attempt++;
         continue; // Try again
       }
       
