@@ -14,9 +14,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// OpenRouter API configuration
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+// Groq API configuration
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const FETCH_TIMEOUT_MS = 60000; // 60 seconds timeout
 const MAX_RETRIES = 3; // Maximum number of retry attempts
 const INITIAL_RETRY_DELAY_MS = 1000; // Initial delay before first retry
@@ -24,18 +24,20 @@ const INITIAL_RETRY_DELAY_MS = 1000; // Initial delay before first retry
 // Simple rate limiting for debate endpoint
 const debateRateLimiter = new Map();
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
-const MAX_DEBATES_PER_WINDOW = 5;
+const MAX_DEBATES_PER_WINDOW = 20; // Groq has higher limits than OpenRouter free tier
 
-// Available free models on OpenRouter
+// Available free models on Groq (all free tier)
 const FREE_MODELS = {
-  llama: 'meta-llama/llama-3.1-8b-instruct:free',
-  gemma: 'google/gemma-2-9b-it:free',
-  mistral: 'mistralai/mistral-7b-instruct:free',
-  qwen: 'qwen/qwen-2-7b-instruct:free'
+  llama33: 'llama-3.3-70b-versatile',      // Best overall - 70B parameters
+  llama31: 'llama-3.1-8b-instant',         // Extremely fast
+  llama3: 'llama3-70b-8192',               // Stable high performance
+  mixtral: 'mixtral-8x7b-32768',           // Good reasoning
+  gemma2: 'gemma2-9b-it',                  // Google's efficient model
+  llama32: 'llama-3.2-90b-text-preview'    // Latest large model
 };
 
 // Model fallback priority order (try models in this order if primary fails)
-const MODEL_FALLBACK_ORDER = ['llama', 'qwen', 'gemma', 'mistral'];
+const MODEL_FALLBACK_ORDER = ['llama33', 'llama32', 'llama3', 'mixtral', 'llama31', 'gemma2'];
 
 // AI Agent personalities
 const AGENT_PERSONALITIES = {
@@ -86,12 +88,12 @@ function delay(ms) {
 }
 
 /**
- * Call OpenRouter API to get AI response with retry logic and model fallback
+ * Call Groq API to get AI response with retry logic and model fallback
  */
-async function callOpenRouter(prompt, personality, length, model = 'llama', triedModels = []) {
-  const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
+async function callGroq(prompt, personality, length, model = 'llama33', triedModels = []) {
+  const modelId = FREE_MODELS[model] || FREE_MODELS.llama33;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
-  
+
   // Convert triedModels array to Set for O(1) lookup performance
   const triedModelsSet = new Set(triedModels);
 
@@ -102,14 +104,12 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
       if (attempt > 0) {
         console.log(`Retry attempt ${attempt}/${MAX_RETRIES}...`);
       }
-      
-      const response = await fetchWithTimeout(OPENROUTER_API_URL, {
+
+      const response = await fetchWithTimeout(GROQ_API_URL, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://github.com/itspasindu/debate-simulator',
-          'X-Title': 'AI Debate Simulator'
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           model: modelId,
@@ -130,47 +130,51 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
 
       if (!response.ok) {
         const errorData = await response.text();
-        
-        // Check if it's a 404 model not found error
+
+        // Check for specific error codes for fallback
+        // Groq may return different errors, but 404 (model) and 429 (rate limit) are standard
         const is404 = response.status === 404;
-        
-        // Only try fallback if model is valid and it's a 404 error
-        if (is404 && model in FREE_MODELS && !triedModelsSet.has(model)) {
+        const is429 = response.status === 429;
+        const is503 = response.status === 503; // Service unavailable often means overload
+
+        // Try fallback if model issue or capacity issue
+        if ((is404 || is429 || is503) && model in FREE_MODELS && !triedModelsSet.has(model)) {
           // Try fallback to alternative models in priority order
           triedModelsSet.add(model);
-          
+
           // Find next available model from fallback order
           const fallbackModel = MODEL_FALLBACK_ORDER.find(m => !triedModelsSet.has(m));
-          
+
           if (fallbackModel) {
-            console.log(`Model ${modelId} not found (404). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
-            return await callOpenRouter(prompt, personality, length, fallbackModel, Array.from(triedModelsSet));
+            const reason = is404 ? 'not found' : (is429 ? 'rate-limited' : 'unavailable');
+            console.log(`Model ${modelId} ${reason} (${response.status}). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
+            return await callGroq(prompt, personality, length, fallbackModel, Array.from(triedModelsSet));
           }
         }
-        
-        throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
+
+        throw new Error(`Groq API error: ${response.status} - ${errorData}`);
       }
 
       const data = await response.json();
-      
+
       // Validate response structure
       if (!data?.choices?.[0]?.message?.content) {
-        throw new Error('Invalid response from OpenRouter API: missing content');
+        throw new Error('Invalid response from Groq API: missing content');
       }
-      
+
       return data.choices[0].message.content;
     } catch (error) {
       const isLastAttempt = attempt === MAX_RETRIES;
       const attemptLabel = attempt === 0 ? 'Initial attempt' : `Retry ${attempt}/${MAX_RETRIES}`;
       console.error(`${attemptLabel} failed:`, error.message);
-      
+
       // Check if we should retry
-      const isNetworkError = error.name === 'AbortError' || 
-                            error.name === 'TypeError' || 
-                            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-                            error.code === 'ECONNREFUSED' ||
-                            error.code === 'ETIMEDOUT';
-      
+      const isNetworkError = error.name === 'AbortError' ||
+        error.name === 'TypeError' ||
+        error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ETIMEDOUT';
+
       if (isNetworkError && !isLastAttempt) {
         // Calculate exponential backoff delay
         const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
@@ -179,7 +183,7 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
         attempt++;
         continue; // Try again
       }
-      
+
       // Either not a network error or last attempt failed
       throw error;
     }
@@ -192,9 +196,9 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'ok',
-    apiKeyConfigured: !!OPENROUTER_API_KEY,
+    apiKeyConfigured: !!GROQ_API_KEY,
     availableModels: Object.keys(FREE_MODELS)
   });
 });
@@ -217,22 +221,22 @@ app.post('/api/debate', async (req, res) => {
     // Simple rate limiting by IP
     const clientIp = req.ip || req.connection.remoteAddress;
     const now = Date.now();
-    
+
     // Clean up old entries
     for (const [ip, data] of debateRateLimiter.entries()) {
       if (now - data.timestamp > RATE_LIMIT_WINDOW_MS) {
         debateRateLimiter.delete(ip);
       }
     }
-    
+
     // Check rate limit
     const clientData = debateRateLimiter.get(clientIp) || { count: 0, timestamp: now };
     if (clientData.count >= MAX_DEBATES_PER_WINDOW && now - clientData.timestamp < RATE_LIMIT_WINDOW_MS) {
-      return res.status(429).json({ 
-        error: 'Too many requests. Please wait a minute before starting another debate.' 
+      return res.status(429).json({
+        error: 'Too many requests. Please wait a minute before starting another debate.'
       });
     }
-    
+
     // Update rate limit counter
     if (now - clientData.timestamp > RATE_LIMIT_WINDOW_MS) {
       clientData.count = 1;
@@ -257,9 +261,9 @@ app.post('/api/debate', async (req, res) => {
       return res.status(400).json({ error: 'Invalid response length' });
     }
 
-    if (!OPENROUTER_API_KEY) {
-      return res.status(500).json({ 
-        error: 'OpenRouter API key not configured. Please set OPENROUTER_API_KEY in .env file.' 
+    if (!GROQ_API_KEY) {
+      return res.status(500).json({
+        error: 'Groq API key not configured. Please set GROQ_API_KEY in .env file.'
       });
     }
 
@@ -272,7 +276,7 @@ app.post('/api/debate', async (req, res) => {
 
       // Pro argument
       const proPrompt = `${context}Round ${i}: Present your argument in favor of: "${topic}"`;
-      const proResponse = await callOpenRouter(
+      const proResponse = await callGroq(
         proPrompt,
         AGENT_PERSONALITIES.pro,
         responseLength,
@@ -281,7 +285,7 @@ app.post('/api/debate', async (req, res) => {
 
       // Con argument
       const conPrompt = `${context}Round ${i}: The Pro side just argued:\n"${proResponse}"\n\nNow present your counter-argument against: "${topic}"`;
-      const conResponse = await callOpenRouter(
+      const conResponse = await callGroq(
         conPrompt,
         AGENT_PERSONALITIES.con,
         responseLength,
@@ -308,9 +312,9 @@ app.post('/api/debate', async (req, res) => {
 
   } catch (error) {
     console.error('Debate error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to generate debate',
-      details: error.message 
+      details: error.message
     });
   }
 });
@@ -323,8 +327,8 @@ app.get('/', (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🎭 Debate Simulator Server running on http://localhost:${PORT}`);
-  console.log(`API Key configured: ${!!OPENROUTER_API_KEY}`);
-  if (!OPENROUTER_API_KEY) {
-    console.log('⚠️  Warning: OPENROUTER_API_KEY not set. Please create a .env file with your API key.');
+  console.log(`API Key configured: ${!!GROQ_API_KEY}`);
+  if (!GROQ_API_KEY) {
+    console.log('⚠️  Warning: GROQ_API_KEY not set. Please create a .env file with your API key.');
   }
 });

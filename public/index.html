@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Debate Simulator</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="container">
         <!-- Header -->
@@ -18,12 +20,8 @@
         <div class="control-panel" id="controlPanel">
             <div class="control-group">
                 <label for="debateTopic">Debate Topic:</label>
-                <input 
-                    type="text" 
-                    id="debateTopic" 
-                    placeholder="e.g., Artificial intelligence will benefit humanity"
-                    maxlength="200"
-                />
+                <input type="text" id="debateTopic" placeholder="e.g., Artificial intelligence will benefit humanity"
+                    maxlength="200" />
             </div>
 
             <div class="control-row">
@@ -55,10 +53,11 @@
                 <div class="control-group">
                     <label for="model">AI Model:</label>
                     <select id="model">
-                        <option value="llama" selected>Llama 3.1 8B (Free)</option>
-                        <option value="gemma">Gemma 2 9B (Free)</option>
-                        <option value="mistral">Mistral 7B (Free)</option>
-                        <option value="qwen">Qwen 2 7B (Free)</option>
+                        <option value="llama33" selected>Llama 3.3 70B (Recommended)</option>
+                        <option value="llama31">Llama 3.1 8B (Fast)</option>
+                        <option value="mixtral">Mixtral 8x7B (Reasoning)</option>
+                        <option value="gemma2">Gemma 2 9B (Efficient)</option>
+                        <option value="llama32">Llama 3.2 90B (Large)</option>
                     </select>
                 </div>
             </div>
@@ -121,10 +120,11 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Powered by OpenRouter AI • Free Models: Llama 3.1, Qwen 2, Gemma 2, Mistral</p>
+            <p>Powered by Groq API • Ultra-fast LPU Inference</p>
         </footer>
     </div>
 
     <script src="app.js"></script>
 </body>
+
 </html>
