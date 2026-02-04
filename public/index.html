@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Debate Simulator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🎭 AI Debate Simulator</h1>
+            <p class="subtitle">Watch two AI agents debate any topic in real-time</p>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="control-panel" id="controlPanel">
+            <div class="control-group">
+                <label for="debateTopic">Debate Topic:</label>
+                <input 
+                    type="text" 
+                    id="debateTopic" 
+                    placeholder="e.g., Artificial intelligence will benefit humanity"
+                    maxlength="200"
+                />
+            </div>
+
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="rounds">Number of Rounds:</label>
+                    <select id="rounds">
+                        <option value="1">1 Round</option>
+                        <option value="2">2 Rounds</option>
+                        <option value="3" selected>3 Rounds</option>
+                        <option value="4">4 Rounds</option>
+                        <option value="5">5 Rounds</option>
+                        <option value="6">6 Rounds</option>
+                        <option value="7">7 Rounds</option>
+                        <option value="8">8 Rounds</option>
+                        <option value="9">9 Rounds</option>
+                        <option value="10">10 Rounds</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="responseLength">Response Length:</label>
+                    <select id="responseLength">
+                        <option value="short">Short (1-2 paragraphs)</option>
+                        <option value="medium" selected>Medium (3-4 paragraphs)</option>
+                        <option value="long">Long (5-6 paragraphs)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="model">AI Model:</label>
+                    <select id="model">
+                        <option value="llama" selected>Llama 3 (Free)</option>
+                        <option value="gemma">Gemma 7B (Free)</option>
+                        <option value="mistral">Mistral 7B (Free)</option>
+                    </select>
+                </div>
+            </div>
+
+            <button id="startDebateBtn" class="btn-primary">
+                Start Debate
+            </button>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="statusMessage" class="status-message hidden"></div>
+
+        <!-- Debate Arena -->
+        <div class="debate-arena hidden" id="debateArena">
+            <!-- Progress Indicator -->
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-text" id="progressText">Round 1 of 3</div>
+            </div>
+
+            <!-- Split Screen Debate -->
+            <div class="split-screen">
+                <!-- Pro Side -->
+                <div class="debate-side pro-side">
+                    <div class="agent-header">
+                        <div class="agent-avatar pro-avatar">👍</div>
+                        <div class="agent-info">
+                            <h2>Pro Agent</h2>
+                            <p>Arguing in favor</p>
+                        </div>
+                    </div>
+                    <div class="arguments-container" id="proArguments"></div>
+                </div>
+
+                <!-- Divider -->
+                <div class="divider"></div>
+
+                <!-- Con Side -->
+                <div class="debate-side con-side">
+                    <div class="agent-header">
+                        <div class="agent-avatar con-avatar">👎</div>
+                        <div class="agent-info">
+                            <h2>Con Agent</h2>
+                            <p>Arguing against</p>
+                        </div>
+                    </div>
+                    <div class="arguments-container" id="conArguments"></div>
+                </div>
+            </div>
+
+            <!-- New Debate Button -->
+            <div class="new-debate-container">
+                <button id="newDebateBtn" class="btn-secondary">
+                    Start New Debate
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Powered by OpenRouter AI • Free Models: Llama, Gemma, Mistral</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
