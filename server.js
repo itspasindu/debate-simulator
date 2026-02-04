@@ -28,10 +28,14 @@ const MAX_DEBATES_PER_WINDOW = 5;
 
 // Available free models on OpenRouter
 const FREE_MODELS = {
-  llama: 'meta-llama/llama-3-8b-instruct:free',
-  gemma: 'google/gemma-7b-it:free',
-  mistral: 'mistralai/mistral-7b-instruct:free'
+  llama: 'meta-llama/llama-3.1-8b-instruct:free',
+  gemma: 'google/gemma-2-9b-it:free',
+  mistral: 'mistralai/mistral-7b-instruct:free',
+  qwen: 'qwen/qwen-2-7b-instruct:free'
 };
+
+// Model fallback priority order (try models in this order if primary fails)
+const MODEL_FALLBACK_ORDER = ['llama', 'qwen', 'gemma', 'mistral'];
 
 // AI Agent personalities
 const AGENT_PERSONALITIES = {
@@ -82,11 +86,14 @@ function delay(ms) {
 }
 
 /**
- * Call OpenRouter API to get AI response with retry logic
+ * Call OpenRouter API to get AI response with retry logic and model fallback
  */
-async function callOpenRouter(prompt, personality, length, model = 'llama') {
+async function callOpenRouter(prompt, personality, length, model = 'llama', triedModels = []) {
   const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
+  
+  // Convert triedModels array to Set for O(1) lookup performance
+  const triedModelsSet = new Set(triedModels);
 
   // Use iterative approach for retries instead of recursion
   let attempt = 0;
@@ -123,6 +130,24 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
 
       if (!response.ok) {
         const errorData = await response.text();
+        
+        // Check if it's a 404 model not found error
+        const is404 = response.status === 404;
+        
+        // Only try fallback if model is valid and it's a 404 error
+        if (is404 && model in FREE_MODELS && !triedModelsSet.has(model)) {
+          // Try fallback to alternative models in priority order
+          triedModelsSet.add(model);
+          
+          // Find next available model from fallback order
+          const fallbackModel = MODEL_FALLBACK_ORDER.find(m => !triedModelsSet.has(m));
+          
+          if (fallbackModel) {
+            console.log(`Model ${modelId} not found (404). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
+            return await callOpenRouter(prompt, personality, length, fallbackModel, Array.from(triedModelsSet));
+          }
+        }
+        
         throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
       }
 
