@@ -91,6 +91,9 @@ function delay(ms) {
 async function callOpenRouter(prompt, personality, length, model = 'llama', triedModels = []) {
   const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
+  
+  // Convert triedModels array to Set for O(1) lookup performance
+  const triedModelsSet = new Set(triedModels);
 
   // Use iterative approach for retries instead of recursion
   let attempt = 0;
@@ -132,16 +135,16 @@ async function callOpenRouter(prompt, personality, length, model = 'llama', trie
         const is404 = response.status === 404;
         
         // Only try fallback if model is valid and it's a 404 error
-        if (is404 && FREE_MODELS[model] && !triedModels.includes(model)) {
+        if (is404 && model in FREE_MODELS && !triedModelsSet.has(model)) {
           // Try fallback to alternative models in priority order
-          triedModels.push(model);
+          triedModelsSet.add(model);
           
           // Find next available model from fallback order
-          const fallbackModel = MODEL_FALLBACK_ORDER.find(m => !triedModels.includes(m));
+          const fallbackModel = MODEL_FALLBACK_ORDER.find(m => !triedModelsSet.has(m));
           
           if (fallbackModel) {
             console.log(`Model ${modelId} not found (404). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
-            return await callOpenRouter(prompt, personality, length, fallbackModel, triedModels);
+            return await callOpenRouter(prompt, personality, length, fallbackModel, Array.from(triedModelsSet));
           }
         }
         
