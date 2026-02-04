@@ -28,9 +28,10 @@ const MAX_DEBATES_PER_WINDOW = 5;
 
 // Available free models on OpenRouter
 const FREE_MODELS = {
-  llama: 'meta-llama/llama-3-8b-instruct:free',
-  gemma: 'google/gemma-7b-it:free',
-  mistral: 'mistralai/mistral-7b-instruct:free'
+  llama: 'meta-llama/llama-3.1-8b-instruct:free',
+  gemma: 'google/gemma-2-9b-it:free',
+  mistral: 'mistralai/mistral-7b-instruct:free',
+  qwen: 'qwen/qwen-2-7b-instruct:free'
 };
 
 // AI Agent personalities
@@ -82,9 +83,9 @@ function delay(ms) {
 }
 
 /**
- * Call OpenRouter API to get AI response with retry logic
+ * Call OpenRouter API to get AI response with retry logic and model fallback
  */
-async function callOpenRouter(prompt, personality, length, model = 'llama') {
+async function callOpenRouter(prompt, personality, length, model = 'llama', triedModels = []) {
   const modelId = FREE_MODELS[model] || FREE_MODELS.llama;
   const maxTokens = RESPONSE_LENGTHS[length]?.tokens || 300;
 
@@ -123,6 +124,22 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
 
       if (!response.ok) {
         const errorData = await response.text();
+        
+        // Check if it's a 404 model not found error
+        const is404 = response.status === 404;
+        
+        if (is404 && !triedModels.includes(model)) {
+          // Try fallback to alternative models
+          triedModels.push(model);
+          const availableModels = Object.keys(FREE_MODELS).filter(m => !triedModels.includes(m));
+          
+          if (availableModels.length > 0) {
+            const fallbackModel = availableModels[0];
+            console.log(`Model ${modelId} not found (404). Trying fallback model: ${FREE_MODELS[fallbackModel]}`);
+            return await callOpenRouter(prompt, personality, length, fallbackModel, triedModels);
+          }
+        }
+        
         throw new Error(`OpenRouter API error: ${response.status} - ${errorData}`);
       }
 

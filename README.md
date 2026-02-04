@@ -117,9 +117,10 @@ Starts a debate and returns all rounds.
 
 All models are free to use via OpenRouter:
 
-- **Llama 3 8B Instruct**: Meta's powerful open-source model
-- **Gemma 7B IT**: Google's instruction-tuned model
+- **Llama 3.1 8B Instruct**: Meta's powerful open-source model
+- **Gemma 2 9B IT**: Google's instruction-tuned model  
 - **Mistral 7B Instruct**: High-quality French AI model
+- **Qwen 2 7B Instruct**: Alibaba's efficient instruction model
 
 ## 🎨 UI Components
 
