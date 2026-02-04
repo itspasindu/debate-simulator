@@ -122,6 +122,12 @@ async function callOpenRouter(prompt, personality, length, model = 'llama') {
       }
 
       const data = await response.json();
+      
+      // Validate response structure
+      if (!data?.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response from OpenRouter API: missing content');
+      }
+      
       return data.choices[0].message.content;
     } catch (error) {
       const isLastAttempt = attempt === MAX_RETRIES;
