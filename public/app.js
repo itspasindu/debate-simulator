@@ -1,6 +1,9 @@
 // API Configuration
 const API_BASE_URL = window.location.origin;
 
+// Animation delays (in milliseconds)
+const ANIMATION_DELAY_MS = 500;
+
 // DOM Elements
 const controlPanel = document.getElementById('controlPanel');
 const debateArena = document.getElementById('debateArena');
@@ -155,11 +158,11 @@ async function startDebate() {
             
             // Add Pro argument
             addArgument('pro', round.round, round.pro);
-            await sleep(500); // Small delay for animation
+            await sleep(ANIMATION_DELAY_MS); // Small delay for animation
             
             // Add Con argument
             addArgument('con', round.round, round.con);
-            await sleep(500); // Small delay for animation
+            await sleep(ANIMATION_DELAY_MS); // Small delay for animation
         }
 
         // Debate complete

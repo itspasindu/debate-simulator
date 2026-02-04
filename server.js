@@ -15,8 +15,13 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // OpenRouter API configuration
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Simple rate limiting for debate endpoint
+const debateRateLimiter = new Map();
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const MAX_DEBATES_PER_WINDOW = 5;
 
 // Available free models on OpenRouter
 const FREE_MODELS = {
@@ -120,6 +125,34 @@ app.get('/api/config', (req, res) => {
 // Start a debate
 app.post('/api/debate', async (req, res) => {
   try {
+    // Simple rate limiting by IP
+    const clientIp = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    
+    // Clean up old entries
+    for (const [ip, data] of debateRateLimiter.entries()) {
+      if (now - data.timestamp > RATE_LIMIT_WINDOW_MS) {
+        debateRateLimiter.delete(ip);
+      }
+    }
+    
+    // Check rate limit
+    const clientData = debateRateLimiter.get(clientIp) || { count: 0, timestamp: now };
+    if (clientData.count >= MAX_DEBATES_PER_WINDOW && now - clientData.timestamp < RATE_LIMIT_WINDOW_MS) {
+      return res.status(429).json({ 
+        error: 'Too many requests. Please wait a minute before starting another debate.' 
+      });
+    }
+    
+    // Update rate limit counter
+    if (now - clientData.timestamp > RATE_LIMIT_WINDOW_MS) {
+      clientData.count = 1;
+      clientData.timestamp = now;
+    } else {
+      clientData.count += 1;
+    }
+    debateRateLimiter.set(clientIp, clientData);
+
     const { topic, rounds, responseLength, model } = req.body;
 
     // Validation
